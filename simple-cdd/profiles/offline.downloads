@@ -8,3 +8,5 @@ virtualbox-guest-x11
 virtualbox-guest-utils
 hyperv-daemons
 qemu-guest-agent
+# inject unrar as well
+unrar
