@@ -24,3 +24,6 @@ grub-efi-amd64
 # Note: There is no grub-efi package on arm64
 grub-efi-arm64
 #endif
+
+# Make sure unrar ends up on the ISO
+unrar
