@@ -127,7 +127,7 @@ clean() {
 print_help() {
 	echo "Usage: $0 <command1> [<command2>]"
 	echo
-	for x in ${BUILD_OPTS_LONG//,/ }; do
+	for x in $(echo "${BUILD_OPTS_LONG}" | sed 's_,_ _g'); do
 		x=$(echo $x | sed 's/:$/ <arg>/')
 		echo "  --${x}"
 	done
