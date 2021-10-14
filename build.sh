@@ -133,6 +133,7 @@ print_help() {
 	done
 	echo
 	echo "More information: https://www.kali.org/docs/development/live-build-a-custom-kali-iso/"
+	exit 0
 }
 
 # Allowed command line options
@@ -154,7 +155,7 @@ while true; do
 		-v|--verbose) VERBOSE="1"; shift 1; ;;
 		-D|--debug) DEBUG="1"; shift 1; ;;
 		-s|--salt) shift; ;;
-		-h|--help) print_help; exit 1 ;;
+		-h|--help) print_help; ;;
 		--installer) IMAGE_TYPE="installer"; shift 1 ;;
 		--live) IMAGE_TYPE="live"; shift 1 ;;
 		--variant) KALI_VARIANT="$2"; shift 2; ;;
