@@ -1,0 +1,19 @@
+# Live image with LXDE
+#
+# ./build.sh --live --variant lxde
+
+## Live images always want these
+kali-linux-core
+kali-desktop-live
+
+## Metapackages
+# You can customize the set of Kali metapackages (groups of tools) to install
+# For the complete list see: https://www.kali.org/tools/kali-meta/
+kali-linux-default
+
+## Graphical desktop
+# For the complete list see: https://www.kali.org/docs/general-use/metapackages/
+kali-desktop-lxde
+
+## Extra Kali applications
+#<package>

@@ -2,6 +2,7 @@
 
 # If a command fails, make the whole script exit
 set -e
+
 # Use return code for any command errors in part of a pipe
 set -o pipefail # Bashism
 
@@ -9,7 +10,7 @@ set -o pipefail # Bashism
 KALI_DIST="kali-rolling"
 KALI_VERSION=""
 KALI_VARIANT="default"
-IMAGE_TYPE="live"
+IMAGE_TYPE="installer"
 TARGET_DIR="$(dirname $0)/images"
 TARGET_SUBDIR=""
 SUDO="sudo"
@@ -41,9 +42,9 @@ live_image_name() {
 
 installer_image_name() {
 	if [ "$KALI_VARIANT" = "netinst" ]; then
-		echo "simple-cdd/images/kali-$KALI_VERSION-$KALI_ARCH-NETINST-1.iso"
+		echo "tmp/common/images/kali-$KALI_VERSION-$KALI_ARCH-NETINST-1.iso"
 	else
-		echo "simple-cdd/images/kali-$KALI_VERSION-$KALI_ARCH-BD-1.iso"
+		echo "tmp/common/images/kali-$KALI_VERSION-$KALI_ARCH-BD-1.iso"
 	fi
 }
 
@@ -108,20 +109,61 @@ debug() {
 	fi
 }
 
+# check_umount <path>
+check_umount() {
+	if [ -e "$1" ]; then
+		debug "umount $1"
+		run_and_log $SUDO umount -l "$1"
+		[ $? -eq 0 ] || failure
+	fi
+}
+
 clean() {
 	debug "Cleaning"
 
-	# Live
-	run_and_log $SUDO lb clean --purge
-	#run_and_log $SUDO umount -l $(pwd)/chroot/proc
-	#run_and_log $SUDO umount -l $(pwd)/chroot/dev/pts
-	#run_and_log $SUDO umount -l $(pwd)/chroot/sys
-	#run_and_log $SUDO rm -rf $(pwd)/chroot
-	#run_and_log $SUDO rm -rf $(pwd)/binary
-
 	# Installer
-	run_and_log $SUDO rm -rf "$(pwd)/simple-cdd/tmp"
-	run_and_log $SUDO rm -rf "$(pwd)/simple-cdd/debian-cd"
+	debug "Cleaning - installer"
+	run_and_log $SUDO rm -rf "$(pwd)/tmp/debian-cd"
+	[ $? -eq 0 ] || failure
+
+	# Live
+	debug "Cleaning - lb clean (kali-live-config/common/lb)"
+	mkdir -p tmp/
+	cp -aT kali-live-config/common/lb ./tmp/auto
+	cd tmp/
+	run_and_log $SUDO lb clean --purge
+	[ $? -eq 0 ] || failure
+	cd ../ #cd tmp/
+
+	debug "Cleaning - umount"
+	check_umount "$(pwd)/tmp/chroot/dev/pts"
+	check_umount "$(pwd)/tmp/chroot/proc"
+	check_umount "$(pwd)/tmp/chroot/sys"
+
+	# Working directory
+	debug "Cleaning - ./tmp/"
+	run_and_log $SUDO rm -rf "$(pwd)/tmp"
+	[ $? -eq 0 ] || failure
+}
+
+# check_install_program <binary> [<package-name>]
+check_install_program() {
+	bin=$1
+	if [ -z $2 ]; then
+		package=$1
+		debug "check_install_program: $bin"
+	else
+		package=$2
+		debug "check_install_program: $bin ($package)"
+	fi
+
+	if ! command -v $bin >/dev/null 2>&1; then
+		debug "Missing: $package"
+		run_and_log $SUDO apt-get update -qq
+		[ $? -eq 0 ] || failure
+		run_and_log $SUDO apt-get -yqq install $package
+		[ $? -eq 0 ] || failure
+	fi
 }
 
 print_help() {
@@ -136,13 +178,11 @@ print_help() {
 	exit 0
 }
 
-# Allowed command line options
-. $(dirname $0)/.getopt.sh
+# Change directory into where the script is
+cd $(dirname $0)/
 
-BUILD_LOG="$(pwd)/build.log"
-debug "BUILD_LOG: $BUILD_LOG"
-# Create empty file
-: > "$BUILD_LOG"
+# Allowed command line options
+. .getopt.sh
 
 # Parsing command line options (see .getopt.sh)
 temp=$(getopt -o "$BUILD_OPTS_SHORT" -l "$BUILD_OPTS_LONG,get-image-path" -- "$@")
@@ -169,6 +209,18 @@ while true; do
 		esac
 done
 
+# Define log file
+BUILD_LOG="$(pwd)/build.log"
+debug "BUILD_LOG: $BUILD_LOG"
+# Create empty file
+: > "$BUILD_LOG"
+
+# Make sure required programs are installed
+check_install_program cdebootstrap
+check_install_program curl
+check_install_program lb live-build
+check_install_program simple-cdd
+
 # Set default values
 KALI_ARCH=${KALI_ARCH:-$HOST_ARCH}
 if [ "$KALI_ARCH" = "x64" ]; then
@@ -190,7 +242,7 @@ if [ "$HOST_ARCH" != "$KALI_ARCH" ] && [ "$IMAGE_TYPE" != "installer" ]; then
 		amd64/i386|i386/amd64)
 		;;
 		*)
-			echo "Can't build $KALI_ARCH image on $HOST_ARCH system." >&2
+			echo "Can't build $KALI_ARCH image on $HOST_ARCH system" >&2
 			exit 1
 		;;
 	esac
@@ -222,7 +274,7 @@ fi
 debug "IMAGE_TYPE: $IMAGE_TYPE"
 case "$IMAGE_TYPE" in
 	live)
-		if [ ! -d "$(dirname $0)/kali-config/variant-$KALI_VARIANT" ]; then
+		if [ ! -d "$(dirname $0)/kali-live-config/live-$KALI_VARIANT" ]; then
 			echo "ERROR: Unknown variant of Kali live configuration: $KALI_VARIANT" >&2
 		fi
 
@@ -241,7 +293,7 @@ case "$IMAGE_TYPE" in
 		debug "ver_debootstrap: $ver_debootstrap"
 	;;
 	installer)
-		if [ ! -d "$(dirname $0)/kali-config/installer-$KALI_VARIANT" ]; then
+		if [ ! -d "$(dirname $0)/kali-installer-config/installer-$KALI_VARIANT" ]; then
 			echo "ERROR: Unknown variant of Kali installer configuration: $KALI_VARIANT" >&2
 		fi
 
@@ -292,27 +344,47 @@ if [ "$ACTION" = "clean" ]; then
 	exit 0
 fi
 
-cd $(dirname $0)
+# Create image output location
 mkdir -p $TARGET_DIR/$TARGET_SUBDIR
+[ $? -eq 0 ] || failure
+
+# Crate temporary working location
+mkdir -p tmp/
+[ $? -eq 0 ] || failure
 
 # Don't quit on any errors now
 set +e
 
 case "$IMAGE_TYPE" in
 	live)
-		debug "Stage 1/2 - Config"
+		debug "Stage 1/3 - Preparation"
+		# Copy over any files to use rather than default template for live-build
+		cp -aT kali-live-config/common/lb ./tmp/auto
+		[ $? -eq 0 ] || failure
+		# Check for mirror
+		if [ -e .mirror ]; then
+			debug "Adding .mirror"
+			ln -sf ../.mirror ./tmp/.mirror
+			[ $? -eq 0 ] || failure
+		fi
+
+		debug "Stage 2/3 - lb config (kali-live-config/common/lb)"
+		cd tmp/
 		run_and_log lb config -a $KALI_ARCH $KALI_CONFIG_OPTS "$@"
 		[ $? -eq 0 ] || failure
 
-		debug "Stage 2/2 - Build"
+		debug "Stage 3/3 - lb build"
 		run_and_log $SUDO lb build
 		if [ $? -ne 0 ] || [ ! -e $IMAGE_NAME ]; then
 			failure
 		fi
+
+		cd ../ #cd tmp/
+		IMAGE_NAME="tmp/$IMAGE_NAME"
 	;;
 	installer)
 		# Override some debian-cd environment variables
-		export BASEDIR="$(pwd)/simple-cdd/debian-cd"
+		export BASEDIR="$(pwd)/tmp/debian-cd"
 		export ARCHES=$KALI_ARCH
 		export ARCH=$KALI_ARCH
 		export DEBVERSION=$KALI_VERSION
@@ -331,7 +403,7 @@ case "$IMAGE_TYPE" in
 		if [ -e .mirror ]; then
 			kali_mirror=$(cat .mirror)
 		else
-			kali_mirror=http://archive.kali.org/kali/
+			kali_mirror=http://kali.download/kali
 		fi
 		if ! echo "$kali_mirror" | grep -q '/$'; then
 			kali_mirror="$kali_mirror/"
@@ -340,35 +412,38 @@ case "$IMAGE_TYPE" in
 
 		debug "Stage 1/2 - File(s)"
 		# Setup custom debian-cd to make our changes
-		cp -aT /usr/share/debian-cd simple-cdd/debian-cd
+		cp -aT /usr/share/debian-cd $BASEDIR
+		[ $? -eq 0 ] || failure
+
+		cp -aT kali-installer-config/common ./tmp/common
 		[ $? -eq 0 ] || failure
 
 		# Keep 686-pae udebs as we changed the default from 686
 		# to 686-pae in the debian-installer images
 		sed -i -e '/686-pae/d' \
-			simple-cdd/debian-cd/data/$CODENAME/exclude-udebs-i386
+			"$BASEDIR/data/$CODENAME/exclude-udebs-i386"
 		[ $? -eq 0 ] || failure
 
 		# Configure the kali profile with the packages we want
-		grep -v '^#' kali-config/installer-$KALI_VARIANT/packages \
-			> simple-cdd/profiles/kali.downloads
+		grep -v '^#' kali-installer-config/installer-$KALI_VARIANT/packages \
+			> tmp/common/profiles/kali.downloads
 		[ $? -eq 0 ] || failure
 
 		# Tasksel is required in the mirror for debian-cd
-		echo tasksel >> simple-cdd/profiles/kali.downloads
+		echo tasksel >> tmp/common/profiles/kali.downloads
 		[ $? -eq 0 ] || failure
 
 		# Grub is the only supported bootloader on arm64
-		# so ensure it's on the iso for arm64.
+		# so ensure it's on the iso for arm64
 		if [ "$KALI_ARCH" = "arm64" ]; then
 			debug "arm64 GRUB"
-			echo "grub-efi-arm64" >> simple-cdd/profiles/kali.downloads
+			echo "grub-efi-arm64" >> tmp/common/profiles/kali.downloads
 			[ $? -eq 0 ] || failure
 		fi
 
 		# Run simple-cdd
 		debug "Stage 2/2 - Build"
-		cd simple-cdd/
+		cd tmp/common/
 		run_and_log build-simple-cdd \
 			--verbose \
 			--debug \
@@ -377,10 +452,10 @@ case "$IMAGE_TYPE" in
 			--dist $CODENAME \
 			--debian-mirror $kali_mirror
 		res=$?
-		cd ../
 		if [ $res -ne 0 ] || [ ! -e $IMAGE_NAME ]; then
 			failure
 		fi
+		cd ../../ #cd tmp/common/
 	;;
 esac
 
@@ -388,7 +463,8 @@ esac
 set -e
 
 debug "Moving files"
-run_and_log mv -f $IMAGE_NAME $TARGET_DIR/$(target_image_name $KALI_ARCH)
+run_and_log chmod 0644 "$IMAGE_NAME" "$TARGET_DIR/$(target_image_name $KALI_ARCH)"
+run_and_log mv -f "$IMAGE_NAME" "$TARGET_DIR/$(target_image_name $KALI_ARCH)"
 run_and_log mv -f "$BUILD_LOG" $TARGET_DIR/$(target_build_log $KALI_ARCH)
 
-run_and_log echo -e "\n***\nGENERATED KALI IMAGE: $TARGET_DIR/$(target_image_name $KALI_ARCH)\n***"
+echo -e "\n***\nGENERATED KALI IMAGE: $(readlink -f $TARGET_DIR/$(target_image_name $KALI_ARCH))\n***"

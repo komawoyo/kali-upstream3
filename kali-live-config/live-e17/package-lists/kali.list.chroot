@@ -1,0 +1,19 @@
+# Live image with Enlightenment 17
+#
+# ./build.sh --live --variant e17
+
+## Live images always want these
+kali-linux-core
+kali-desktop-live
+
+## Metapackages
+# You can customize the set of Kali metapackages (groups of tools) to install
+# For the complete list see: https://www.kali.org/tools/kali-meta/
+kali-linux-default
+
+## Graphical desktop
+# For the complete list see: https://www.kali.org/docs/general-use/metapackages/
+kali-desktop-e17
+
+## Extra Kali applications
+#<package>
