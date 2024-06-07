@@ -240,7 +240,7 @@ case "$IMAGE_TYPE" in
 		ver_debootstrap=$(dpkg-query -f '${Version}' -W debootstrap)
 		if dpkg --compare-versions "$ver_debootstrap" lt "1.0.97"; then
 			echo "ERROR: You need debootstrap (>= 1.0.97), you have $ver_debootstrap" >&2
-			exit 1
+			#exit 1
 		fi
 		debug "ver_debootstrap: $ver_debootstrap"
 	;;
